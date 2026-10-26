@@ -1,11 +1,11 @@
-"""Tool (function-calling) schemas exposed to the LLM."""
+"""Tool definitions exposed to the model (OpenAI function-calling format)."""
 
 TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "Search the web via a SearXNG instance and return the top results.",
+            "description": "Search the web via a SearXNG instance",
             "parameters": {
                 "type": "object",
                 "properties": {"query": {"type": "string", "description": "Search query"}},
@@ -17,10 +17,10 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "rag_search",
-            "description": "Semantic search in the local knowledge base (Qdrant).",
+            "description": "Search the knowledge base (Qdrant) for relevant information",
             "parameters": {
                 "type": "object",
-                "properties": {"query": {"type": "string", "description": "What to look up"}},
+                "properties": {"query": {"type": "string", "description": "Search query"}},
                 "required": ["query"],
             },
         },

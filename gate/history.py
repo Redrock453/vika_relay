@@ -1,26 +1,27 @@
-"""Chat history management with persistence."""
+"""Per-user chat history with JSON persistence."""
 import json
 import logging
 import threading
+from pathlib import Path
 from typing import Optional
 
-from src.core.config import config
+from gate.config import config
 
-logger = logging.getLogger("vika.history")
+logger = logging.getLogger("gate.history")
 
 
 class HistoryManager:
-    """Thread-safe chat history with JSON persistence."""
+    """Thread-safe chat history, persisted to a JSON file after every change."""
 
-    def __init__(self):
+    def __init__(self, path: Optional[str] = None):
+        self.path = Path(path or config.history_file)
         self._histories: dict[str, list[dict]] = {}
         self._lock = threading.Lock()
         self._load()
 
     def _load(self):
         try:
-            with open(config.history_file, "r") as f:
-                self._histories = json.load(f)
+            self._histories = json.loads(self.path.read_text(encoding="utf-8"))
             logger.info(f"Loaded history for {len(self._histories)} users")
         except FileNotFoundError:
             pass
@@ -29,8 +30,8 @@ class HistoryManager:
 
     def _save(self):
         try:
-            with open(config.history_file, "w") as f:
-                json.dump(self._histories, f, ensure_ascii=False, indent=2)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(json.dumps(self._histories, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as e:
             logger.error(f"History save error: {e}")
 
@@ -41,22 +42,16 @@ class HistoryManager:
     def add(self, user_id: str, role: str, content: str):
         with self._lock:
             uid = str(user_id)
-            if uid not in self._histories:
-                self._histories[uid] = []
-            self._histories[uid].append({"role": role, "content": content})
-            # Trim to 2x max
+            self._histories.setdefault(uid, []).append({"role": role, "content": content})
+            # Keep at most twice the context window on disk.
             if len(self._histories[uid]) > config.max_history * 2:
                 self._histories[uid] = self._histories[uid][-config.max_history * 2:]
             self._save()
 
-    def clear(self, user_id: str) -> Optional[str]:
-        """Clear history for user, return last context summary or None."""
+    def clear(self, user_id: str):
         with self._lock:
-            uid = str(user_id)
-            removed = self._histories.pop(uid, [])
+            self._histories.pop(str(user_id), None)
             self._save()
-            return None
 
     def recent(self, user_id: str, limit: Optional[int] = None) -> list[dict]:
-        limit = limit or config.max_history
-        return self.get(user_id)[-limit:]
+        return self.get(user_id)[-(limit or config.max_history):]

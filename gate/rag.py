@@ -1,30 +1,28 @@
-"""RAG: Ollama embeddings (bge-m3) + Qdrant vector search.
+"""Knowledge-base search: bge-m3 embeddings via Ollama + Qdrant.
 
-Any embedder/Qdrant error returns an empty string, so the agent keeps working without RAG.
+Any embedding or Qdrant error returns an empty string, so the assistant keeps
+working without RAG instead of failing the turn.
 """
 import logging
 import os
 
 import requests
 
-from src.core.config import config
+from gate.config import config
 
-logger = logging.getLogger("vika.rag")
+logger = logging.getLogger("gate.rag")
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 EMBED_MODEL = os.getenv("VIKA_EMBED_MODEL", "bge-m3")
 QDRANT_URL = os.getenv("QDRANT_URL", f"http://{config.qdrant_host}:{config.qdrant_port}")
 COLLECTION = os.getenv("VIKA_RAG_COLLECTION", "knowledge")
-TOP_K = int(os.getenv("VIKA_RAG_TOPK", "3"))
 SCORE_THRESHOLD = float(os.getenv("VIKA_RAG_THRESHOLD", "0.50"))
 SNIPPET_CHARS = int(os.getenv("VIKA_RAG_SNIPPET", "500"))
+MIN_QUERY_CHARS = 20
 
 
 class RAGService:
-    """Semantic search over a Qdrant collection (embeddings via local Ollama)."""
-
-    def __init__(self):
-        self._ready = True
+    """Semantic search over a Qdrant collection built with the same embedding model."""
 
     def _embed(self, text: str):
         resp = requests.post(
@@ -36,7 +34,8 @@ class RAGService:
         return resp.json()["embeddings"][0]
 
     def search(self, query: str, limit: int = 3) -> str:
-        if len(query.strip()) < 20:
+        # Short messages (greetings, commands) skip retrieval: the knowledge base only adds noise there.
+        if len(query.strip()) < MIN_QUERY_CHARS:
             return ""
         try:
             vec = self._embed(query)
@@ -55,9 +54,8 @@ class RAGService:
         except Exception as e:
             logger.warning(f"qdrant search failed: {e}")
             return ""
-        parts = [
-            "Relevant knowledge-base snippets below. Use them only if they relate to the question; do not invent facts beyond them."
-        ]
+        parts = ["Relevant fragments from the knowledge base. Rely on them if they relate to the question; "
+                 "do not invent facts beyond them."]
         for h in hits:
             text = (h.get("payload", {}).get("text") or "").strip()
             if text:

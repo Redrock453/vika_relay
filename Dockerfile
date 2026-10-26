@@ -1,11 +1,17 @@
 FROM python:3.12-slim
+
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
+# ffmpeg converts Telegram voice messages for transcription
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-ENV RELAY_DATA_DIR=/app/data
-EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS http://localhost:8080/health || exit 1
+
+COPY gate/ gate/
+COPY bot/ bot/
+COPY prompts/ prompts/
+COPY run.py .
+
 CMD ["python", "run.py"]

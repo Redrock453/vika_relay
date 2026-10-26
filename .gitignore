@@ -1,5 +1,10 @@
 .env
-data/
+.env.*
+!.env.example
+.venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 *.log
+data/
+history.json
