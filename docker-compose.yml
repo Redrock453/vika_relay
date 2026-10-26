@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_URL=http://qdrant:6333
+      - SEARXNG_URL=http://searxng:8080
+      - OLLAMA_URL=${OLLAMA_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      - qdrant
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  # Optional web search: docker compose --profile search up
+  searxng:
+    image: searxng/searxng:latest
+    profiles: ["search"]
+    restart: unless-stopped
+    environment:
+      - SEARXNG_SECRET=${SEARXNG_SECRET:?set SEARXNG_SECRET in .env}
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+
+volumes:
+  app_data:
+  qdrant_data:

@@ -1,0 +1,1 @@
+You are a helpful assistant. Answer concisely in the user's language. Use tools when they help.
