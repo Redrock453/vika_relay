@@ -4,7 +4,8 @@ Providers are tried in order. Each gets up to MAX_RETRIES attempts with backoff;
 auth, billing and unknown-model errors (401/402/403/404) skip straight to the next
 provider, because retrying them cannot help. An empty answer counts as a failure.
 Tool calls are executed and fed back to the model until it answers in plain text
-or the round limit is reached.
+or the round limit is reached. The last link is an optional local model on Ollama:
+it runs without tools and answers when every cloud provider is unreachable.
 """
 import json
 import logging
@@ -40,6 +41,11 @@ DO_MODEL = os.getenv("VIKA_DO_MODEL", "openai-gpt-oss-120b")
 GROQ_MODEL = os.getenv("VIKA_GROQ_MODEL", "openai/gpt-oss-120b")
 GEMINI_MODEL = os.getenv("VIKA_GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_OPENAI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+# Optional local model on Ollama (OpenAI-compatible endpoint). Off unless VIKA_LOCAL_MODEL is set.
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
+LOCAL_MODEL = os.getenv("VIKA_LOCAL_MODEL", "")
+LOCAL_TIMEOUT = int(os.getenv("VIKA_LOCAL_TIMEOUT", "300"))
 
 # Cost guard. During DeepSeek peak windows (weekdays, UTC) the pro model and heavy requests
 # are routed around DeepSeek to cheaper providers. Outside the windows the chain is unchanged.
@@ -91,6 +97,8 @@ class LLMRouter:
         self.do_client: Optional[OpenAI] = None
         self.groq_client: Optional[OpenAI] = None
         self.gemini_client: Optional[OpenAI] = None
+        self.local_client: Optional[OpenAI] = None
+        self.local_model = LOCAL_MODEL
         # Per-turn settings live in thread-local storage: turns are served by threads, so the
         # model choice and cancellation of one chat must not leak into another.
         self._tl = threading.local()
@@ -100,14 +108,16 @@ class LLMRouter:
         self._init_do()
         self._init_groq()
         self._init_gemini()
+        self._init_local()
 
-        # Providers without a key return None and are skipped.
+        # Providers without a key (the local model: without VIKA_LOCAL_MODEL) return None and are skipped.
         self.chain = [
             ("deepseek", self._call_deepseek),
             ("openrouter", self._call_openrouter),
             ("do", self._call_do),
             ("groq", self._call_groq),
             ("gemini", self._call_gemini),
+            ("local", self._call_local),
         ]
 
     # ── per-turn settings ──
@@ -298,6 +308,42 @@ class LLMRouter:
         if getattr(choice.message, "tool_calls", None):
             result["tool_calls"] = choice.message.tool_calls
         return result
+
+    def _init_local(self):
+        if not self.local_model:
+            return
+        try:
+            # Ollama ignores the key, but the client requires one. Client-side retries are off:
+            # with a long local timeout they would multiply the router's own retries.
+            self.local_client = OpenAI(base_url=f"{OLLAMA_URL.rstrip('/')}/v1", api_key="ollama",
+                                       max_retries=0)
+            logger.info(f"Local model initialized ({self.local_model} via Ollama)")
+        except Exception as e:
+            logger.warning(f"Local model init failed: {e}")
+
+    def _call_local(self, messages: list[dict], tools=None) -> Optional[dict]:
+        """Local model, always without tools: it answers from what the turn already holds."""
+        if not self.local_client:
+            return None
+        resp = self.local_client.chat.completions.create(
+            model=self.local_model, messages=self._plain_messages(messages),
+            max_tokens=MAX_TOKENS, timeout=LOCAL_TIMEOUT)
+        return {"content": resp.choices[0].message.content or "", "_model": self.local_model}
+
+    @staticmethod
+    def _plain_messages(messages: list[dict]) -> list[dict]:
+        """Rewrite a turn for a model without tools: tool results become text, tool calls are dropped."""
+        out = []
+        for m in messages:
+            role, content = m.get("role"), m.get("content") or ""
+            if role == "tool":
+                out.append({"role": "user", "content": f"[tool result]\n{content}"})
+            elif role == "assistant" and m.get("tool_calls"):
+                if content.strip():
+                    out.append({"role": "assistant", "content": content})
+            else:
+                out.append({"role": role, "content": content})
+        return out
 
     # ── main loop ──
     @staticmethod

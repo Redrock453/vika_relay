@@ -6,6 +6,7 @@ services:
     environment:
       - QDRANT_HOST=qdrant
       - SEARXNG_URL=http://searxng:8080
+      - OLLAMA_URL=http://ollama:11434
       - HISTORY_FILE=/app/data/history.json
     volumes:
       - bot_data:/app/data
@@ -27,6 +28,15 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  # Optional: local model and RAG embeddings. Start with `docker compose --profile local up -d`.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local"]
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+
 volumes:
   bot_data:
   qdrant_data:
+  ollama_data:

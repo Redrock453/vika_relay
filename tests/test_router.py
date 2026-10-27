@@ -53,7 +53,27 @@ def router(monkeypatch):
     for attr in ("do_api_key", "groq_api_key", "gemini_api_key"):
         monkeypatch.setattr(router_mod.config, attr, "")
     monkeypatch.setattr(router_mod, "peak_now_utc", lambda now=None: False)
+    monkeypatch.setattr(router_mod, "LOCAL_MODEL", "")
     return LLMRouter()
+
+
+class FakeCompletions:
+    """Stands in for client.chat.completions of an OpenAI-compatible endpoint."""
+
+    def __init__(self, text):
+        self.text, self.kwargs = text, None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        msg = SimpleNamespace(content=self.text, tool_calls=None)
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason="stop")])
+
+
+def use_fake_local(router, text="local answer"):
+    completions = FakeCompletions(text)
+    router.local_model = "qwen3:8b"
+    router.local_client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    return completions
 
 
 def test_falls_back_after_retries(router):
@@ -185,3 +205,31 @@ def test_at_peak_chain_starts_with_cheap_provider(router, monkeypatch):
     names = [name for name, _ in router._ordered_chain()]
     assert names[0] == "groq"
     assert "deepseek" not in names and "openrouter" not in names
+    assert names[-1] == "local"
+
+
+def test_local_model_is_last_and_off_without_config(router):
+    assert [name for name, _ in router.chain][-1] == "local"
+    assert router.local_client is None
+
+
+def test_local_model_answers_when_cloud_is_down(router):
+    completions = use_fake_local(router)
+    router.chain = [("groq", FakeProvider(RuntimeError("no internet"))), ("local", router._call_local)]
+    assert router.ask(list(USER)) == "local answer"
+    assert completions.kwargs["model"] == "qwen3:8b"
+
+
+def test_local_model_gets_plain_text_and_no_tools(router):
+    completions = use_fake_local(router, "It is sunny.")
+    router.chain = [("local", router._call_local)]
+    msgs = [{"role": "user", "content": "weather?"},
+            {"role": "assistant", "content": None, "reasoning_content": "thinking",
+             "tool_calls": [{"id": "c1", "type": "function",
+                             "function": {"name": "web_search", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "c1", "content": "sunny, +20"}]
+    assert router.ask(msgs, tool_executor=lambda n, a: "unused") == "It is sunny."
+    sent = completions.kwargs["messages"]
+    assert "tools" not in completions.kwargs
+    assert all(set(m) == {"role", "content"} and m["role"] != "tool" for m in sent)
+    assert sent[-1] == {"role": "user", "content": "[tool result]\nsunny, +20"}
