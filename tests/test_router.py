@@ -50,7 +50,7 @@ def no_sleep(monkeypatch):
 def router(monkeypatch):
     for key in ("DEEPSEEK_API_KEY", "OPENROUTER_API_KEY"):
         monkeypatch.delenv(key, raising=False)
-    for attr in ("do_api_key", "groq_api_key", "gemini_api_key"):
+    for attr in ("groq_api_key", "gemini_api_key"):
         monkeypatch.setattr(router_mod.config, attr, "")
     monkeypatch.setattr(router_mod, "peak_now_utc", lambda now=None: False)
     monkeypatch.setattr(router_mod, "LOCAL_MODEL", "")

@@ -17,8 +17,6 @@ class Config:
         self.allowed_ids: list[int] = self._parse_ids(os.getenv("ALLOWED_IDS", ""))
 
         # LLM providers (DeepSeek and OpenRouter keys are read by the router directly)
-        self.do_api_key: str = os.getenv("DO_AI_API_KEY", "")
-        self.do_base_url: str = os.getenv("DO_AI_BASE_URL", "")
         self.groq_api_key: str = os.getenv("GROQ_API_KEY", "")
         self.gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
 

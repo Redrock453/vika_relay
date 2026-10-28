@@ -37,7 +37,6 @@ DEEPSEEK_EFFORT = os.getenv("VIKA_DEEPSEEK_EFFORT", "high")  # low / high / max
 OPENROUTER_MODEL = os.getenv("VIKA_MODEL", "deepseek/deepseek-v4-pro")
 OR_PROVIDER_IGNORE = [x.strip() for x in os.getenv("VIKA_OR_PROVIDER_IGNORE", "StreamLake").split(",")
                       if x.strip()]
-DO_MODEL = os.getenv("VIKA_DO_MODEL", "openai-gpt-oss-120b")
 GROQ_MODEL = os.getenv("VIKA_GROQ_MODEL", "openai/gpt-oss-120b")
 GEMINI_MODEL = os.getenv("VIKA_GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_OPENAI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -94,7 +93,6 @@ class LLMRouter:
         self.deepseek_model = DEEPSEEK_MODEL
         self.openrouter_client: Optional[OpenAI] = None
         self.openrouter_model = OPENROUTER_MODEL
-        self.do_client: Optional[OpenAI] = None
         self.groq_client: Optional[OpenAI] = None
         self.gemini_client: Optional[OpenAI] = None
         self.local_client: Optional[OpenAI] = None
@@ -105,7 +103,6 @@ class LLMRouter:
 
         self._init_deepseek()
         self._init_openrouter()
-        self._init_do()
         self._init_groq()
         self._init_gemini()
         self._init_local()
@@ -114,7 +111,6 @@ class LLMRouter:
         self.chain = [
             ("deepseek", self._call_deepseek),
             ("openrouter", self._call_openrouter),
-            ("do", self._call_do),
             ("groq", self._call_groq),
             ("gemini", self._call_gemini),
             ("local", self._call_local),
@@ -240,28 +236,6 @@ class LLMRouter:
             result["tool_calls"] = choice.message.tool_calls
         return result
 
-    def _init_do(self):
-        if not (config.do_api_key and config.do_base_url):
-            return
-        try:
-            self.do_client = OpenAI(base_url=config.do_base_url, api_key=config.do_api_key)
-            logger.info("DO endpoint initialized")
-        except Exception as e:
-            logger.warning(f"DO init failed: {e}")
-
-    def _call_do(self, messages: list[dict], tools=None) -> Optional[dict]:
-        if not self.do_client:
-            return None
-        kwargs = {"model": DO_MODEL, "messages": messages}
-        if tools:
-            kwargs["tools"] = tools
-        resp = self.do_client.chat.completions.create(**kwargs)
-        choice = resp.choices[0]
-        result = {"content": choice.message.content or ""}
-        if getattr(choice.message, "tool_calls", None):
-            result["tool_calls"] = choice.message.tool_calls
-        return result
-
     def _init_groq(self):
         if not config.groq_api_key:
             return
@@ -356,7 +330,7 @@ class LLMRouter:
 
     def _log_ok(self, name: str, result: dict, round_num: int):
         usage = result.get("_usage")
-        model = result.get("_model") or {"openrouter": self._or_model(), "do": DO_MODEL,
+        model = result.get("_model") or {"openrouter": self._or_model(),
                                          "groq": GROQ_MODEL, "gemini": GEMINI_MODEL}.get(name, "?")
         u = ""
         if usage is not None:

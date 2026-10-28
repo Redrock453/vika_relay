@@ -1,12 +1,12 @@
 # vika_relay
 
-An LLM gateway behind a Telegram assistant. One `ask()` call, five cloud providers and an optional local model behind it: if one fails, runs out of balance or returns nothing, the next one answers — and with no internet at all, the local model does. On top of that — tool calling, RAG over a private knowledge base, guest access with a hard tool allowlist, and a cost guard for peak pricing hours.
+An LLM gateway behind a Telegram assistant. One `ask()` call, four cloud providers and an optional local model behind it: if one fails, runs out of balance or returns nothing, the next one answers — and with no internet at all, the local model does. On top of that — tool calling, RAG over a private knowledge base, guest access with a hard tool allowlist, and a cost guard for peak pricing hours.
 
 Extracted from the author's personal assistant; this repository contains the gateway core and a minimal bot around it.
 
 ## Features
 
-- **Fallback chain** — DeepSeek → OpenRouter → DO endpoint → Groq → Gemini, all through OpenAI-compatible APIs. Each provider gets 3 attempts with 1 s / 3 s backoff. Auth, billing and unknown-model errors (401/402/403/404) skip straight to the next provider. An empty answer counts as a failure, not as a reply.
+- **Fallback chain** — DeepSeek → OpenRouter → Groq → Gemini, all through OpenAI-compatible APIs. Each provider gets 3 attempts with 1 s / 3 s backoff. Auth, billing and unknown-model errors (401/402/403/404) skip straight to the next provider. An empty answer counts as a failure, not as a reply.
 - **Local model** — an optional last link on Ollama. It answers when every cloud provider is unreachable. It runs without tools, so tool results from earlier steps of the turn reach it as text. Off unless `VIKA_LOCAL_MODEL` is set.
 - **Tool calling loop** — the model calls tools, results go back to it, until it answers in text. At the round limit it writes an honest summary of what was done instead of cutting off.
 - **Cost guard** — during DeepSeek peak hours (weekdays 01–04 and 06–10 UTC) the pro model and heavy requests (6,000+ characters) are routed around DeepSeek, with Groq first.
@@ -26,10 +26,9 @@ flowchart LR
     A --> R{LLM router}
     R --> P1[DeepSeek]
     P1 -.->|fails| P2[OpenRouter]
-    P2 -.->|fails| P3[DO endpoint]
-    P3 -.->|fails| P4[Groq]
-    P4 -.->|fails| P5[Gemini]
-    P5 -.->|fails| P6[Local model<br/>Ollama]
+    P2 -.->|fails| P3[Groq]
+    P3 -.->|fails| P4[Gemini]
+    P4 -.->|fails| P5[Local model<br/>Ollama]
     R <-->|tool calls| T[Tools<br/>web_search · rag_search]
     T --> S[SearXNG]
 ```
@@ -79,7 +78,7 @@ RAG and the local model are optional: without Ollama and Qdrant the bot answers 
 | Variable | Purpose |
 | --- | --- |
 | `TELEGRAM_BOT_TOKEN`, `ALLOWED_IDS` | Bot token and allowed Telegram user IDs |
-| `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `DO_AI_API_KEY` + `DO_AI_BASE_URL`, `GROQ_API_KEY`, `GEMINI_API_KEY` | Providers; any without a key is skipped |
+| `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, `GEMINI_API_KEY` | Providers; any without a key is skipped |
 | `VIKA_*_MODEL` | Model override per provider |
 | `VIKA_DEEPSEEK_PEAK_GUARD` | `0` turns the cost guard off |
 | `VIKA_LOCAL_MODEL` | Local model on Ollama, last in the chain; empty = off |
